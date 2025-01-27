@@ -1,0 +1,277 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "-Jj2vYIkRTyJ",
+        "outputId": "14edf6e5-4cf0-4e3e-c127-bdb30b8f81d2"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Mounted at /content/drive\n"
+          ]
+        }
+      ],
+      "source": [
+        "from google.colab import drive\n",
+        "drive.mount('/content/drive')"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import pandas as pd\n",
+        "customers = pd.read_csv('/content/drive/My Drive/Customers.csv')\n",
+        "products = pd.read_csv('/content/drive/My Drive/Products.csv')\n",
+        "transactions = pd.read_csv('/content/drive/My Drive/Transactions.csv')\n"
+      ],
+      "metadata": {
+        "id": "jahSiOnUS5qw"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "customers['SignupDate'] = pd.to_datetime(customers['SignupDate'])\n",
+        "transactions['TransactionDate'] = pd.to_datetime(transactions['TransactionDate'])\n",
+        "\n",
+        "merged_data = transactions.merge(customers, on=\"CustomerID\").merge(products, on=\"ProductID\")\n"
+      ],
+      "metadata": {
+        "id": "w56_cnmDTaNP"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "customer_profiles = merged_data.groupby('CustomerID').agg({\n",
+        "    'TotalValue': 'sum',\n",
+        "    'Quantity': 'sum',\n",
+        "    'ProductID': 'nunique',\n",
+        "    'SignupDate': 'max'\n",
+        "}).reset_index()\n",
+        "\n",
+        "from sklearn.preprocessing import MinMaxScaler\n",
+        "scaler = MinMaxScaler()\n",
+        "customer_profiles[['TotalValue', 'Quantity', 'ProductID']] = scaler.fit_transform(customer_profiles[['TotalValue', 'Quantity', 'ProductID']])\n",
+        "print(customer_profiles.head())\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "YAZb9apPZzFT",
+        "outputId": "2d365bda-876a-4551-eba0-7803b660c194"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "  CustomerID  TotalValue  Quantity  ProductID SignupDate\n",
+            "0      C0001    0.308942  0.354839   0.444444 2022-07-10\n",
+            "1      C0002    0.168095  0.290323   0.333333 2022-02-13\n",
+            "2      C0003    0.249541  0.419355   0.333333 2024-03-07\n",
+            "3      C0004    0.497806  0.709677   0.777778 2022-10-09\n",
+            "4      C0005    0.184287  0.193548   0.222222 2022-08-15\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from sklearn.metrics.pairwise import cosine_similarity\n",
+        "\n",
+        "similarity_matrix = cosine_similarity(customer_profiles.drop(['CustomerID', 'SignupDate'], axis=1))\n",
+        "\n",
+        "def get_similar_customers(customer_id, N=3):\n",
+        "    customer_idx = customer_profiles[customer_profiles['CustomerID'] == customer_id].index[0]\n",
+        "    similar_indices = similarity_matrix[customer_idx].argsort()[-N-1:-1][::-1]\n",
+        "    similar_customers = [(customer_profiles['CustomerID'][i], similarity_matrix[customer_idx][i]) for i in similar_indices]\n",
+        "    return similar_customers\n",
+        "\n",
+        "test_customer_id = 'C0001'\n",
+        "print(f\"Top 3 similar customers for {test_customer_id}: {get_similar_customers(test_customer_id)}\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "bsqKugbvaMw2",
+        "outputId": "a51fe016-e866-4a3f-f001-041aeb60c491"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Top 3 similar customers for C0001: [('C0173', 0.9999822241148129), ('C0177', 0.9999136617563172), ('C0122', 0.9998426710884338)]\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "lookalike_map = {}\n",
+        "for customer_id in customer_profiles['CustomerID'][:20]:\n",
+        "    lookalike_map[customer_id] = get_similar_customers(customer_id)\n",
+        "\n",
+        "lookalikes = []\n",
+        "for cust_id, similars in lookalike_map.items():\n",
+        "      for similar in similars:\n",
+        "              lookalikes.append([cust_id, similar[0], similar[1]])\n",
+        "\n",
+        "lookalike_df = pd.DataFrame(lookalikes, columns=['CustomerID', 'LookalikeCustomerID', 'SimilarityScore'])\n",
+        "\n",
+        "lookalike_df.to_csv('FirstName_LastName_Lookalike.csv', index=False)\n",
+        "print(lookalike_df.head())\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "N1H5gsqsajcI",
+        "outputId": "9537956b-804b-4e0d-cb99-15fa06a73997"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "  CustomerID LookalikeCustomerID  SimilarityScore\n",
+            "0      C0001               C0173         0.999982\n",
+            "1      C0001               C0177         0.999914\n",
+            "2      C0001               C0122         0.999843\n",
+            "3      C0002               C0030         0.999915\n",
+            "4      C0002               C0029         0.999896\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "lookalike_df.to_csv('FirstName_LastName_Lookalike.csv', index=False)\n"
+      ],
+      "metadata": {
+        "id": "xV0bSSnib0eJ"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from google.colab import files\n",
+        "files.download('FirstName_LastName_Lookalike.csv')\n"
+      ],
+      "metadata": {
+        "id": "gDFOZyQkb4C8",
+        "outputId": "8deb6cd9-6347-457e-f259-77806fce1772",
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 34
+        }
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ],
+            "application/javascript": [
+              "\n",
+              "    async function download(id, filename, size) {\n",
+              "      if (!google.colab.kernel.accessAllowed) {\n",
+              "        return;\n",
+              "      }\n",
+              "      const div = document.createElement('div');\n",
+              "      const label = document.createElement('label');\n",
+              "      label.textContent = `Downloading \"${filename}\": `;\n",
+              "      div.appendChild(label);\n",
+              "      const progress = document.createElement('progress');\n",
+              "      progress.max = size;\n",
+              "      div.appendChild(progress);\n",
+              "      document.body.appendChild(div);\n",
+              "\n",
+              "      const buffers = [];\n",
+              "      let downloaded = 0;\n",
+              "\n",
+              "      const channel = await google.colab.kernel.comms.open(id);\n",
+              "      // Send a message to notify the kernel that we're ready.\n",
+              "      channel.send({})\n",
+              "\n",
+              "      for await (const message of channel.messages) {\n",
+              "        // Send a message to notify the kernel that we're ready.\n",
+              "        channel.send({})\n",
+              "        if (message.buffers) {\n",
+              "          for (const buffer of message.buffers) {\n",
+              "            buffers.push(buffer);\n",
+              "            downloaded += buffer.byteLength;\n",
+              "            progress.value = downloaded;\n",
+              "          }\n",
+              "        }\n",
+              "      }\n",
+              "      const blob = new Blob(buffers, {type: 'application/binary'});\n",
+              "      const a = document.createElement('a');\n",
+              "      a.href = window.URL.createObjectURL(blob);\n",
+              "      a.download = filename;\n",
+              "      div.appendChild(a);\n",
+              "      a.click();\n",
+              "      div.remove();\n",
+              "    }\n",
+              "  "
+            ]
+          },
+          "metadata": {}
+        },
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ],
+            "application/javascript": [
+              "download(\"download_b6d5c9bf-332d-48c6-af13-a6d233d72233\", \"FirstName_LastName_Lookalike.csv\", 1902)"
+            ]
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ]
+}
